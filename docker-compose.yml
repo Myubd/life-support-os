@@ -1,0 +1,248 @@
+# 配置先: umbrella repoのルート(下記フォルダ構成を参照)直下に docker-compose.yml として置く。
+#
+# 前提のフォルダ構成(すべて同じ親ディレクトリの下に並べる):
+#
+#   life-support-os/                  ← このdocker-compose.ymlを置く場所
+#   ├── docker-compose.yml
+#   ├── local-ai-core/                ← 今回お渡ししたパッケージ(documents/automation/assistant/api追加済み)
+#   ├── life-support-os-gateway/      ← 今回お渡ししたgateway
+#   ├── archlife/                     ← 既存リポジトリ(archlife-fastapi/Dockerfileを追加しておくこと)
+#   └── interview_app/                ← 既存リポジトリ(そのまま)
+#
+# 起動:
+#   docker compose --profile setup run --rm model_setup   # 初回のみ: モデルをpull
+#   docker compose up -d --build
+#
+# 起動後の確認:
+#   http://localhost:3000/health            … gateway
+#   http://localhost:3000/api/life/health    … Archlife(archlife-fastapi)へプロキシ
+#   http://localhost:3000/api/career/health  … interview_app backendへプロキシ (要: backend側にエンドポイントがあること)
+#   http://localhost:8080 (frontend)         … Archlifeフロントエンド単体
+#   http://localhost:3001 (frontend)         … interview_appフロントエンド単体 (ポートは下記参照)
+
+services:
+  # ── ローカルLLM(全アプリ共有・1インスタンスのみ) ─────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: life_support_os_ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # RTX 4060(8GB VRAM)搭載環境向けにGPUを有効化。
+    # 前提: Docker DesktopがWSL2バックエンドで動作し、NVIDIA製の最新ドライバ
+    # (WSL用CUDAサポート含む)がホスト側にインストールされていること。
+    # 通常、最近のGeForceドライバであれば追加設定なしでWSL2のGPUパススルーに
+    # 対応している。
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # 初回のみ実行するモデル取得ジョブ
+  model_setup:
+    image: ollama/ollama:latest
+    container_name: life_support_os_model_setup
+    profiles: ["setup"]
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: >
+      sh -c "
+        sleep 5 &&
+        echo '=== チャットモデルをダウンロード中 ===' &&
+        ollama pull qwen3:8b &&
+        echo '=== 埋め込みモデルをダウンロード中 ===' &&
+        ollama pull nomic-embed-text &&
+        echo '=== 完了 ==='
+      "
+    volumes:
+      - ollama_data:/root/.ollama
+
+  # ── ライフサポートOS本体(Archlife / archlife-fastapi) ───────────
+  archlife_backend:
+    build:
+      context: ./archlife/archlife-fastapi
+      dockerfile: Dockerfile   # packaging/docker/archlife-fastapi.Dockerfile をここに配置したもの
+    container_name: life_support_os_archlife_backend
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen3:8b
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ARCHLIFE_DB_PATH: /app/data/archlife.db
+      # ↓ ここが「共通データ基盤を共有する」ための肝。gateway/interview_backendと必ず同じ値にする
+      LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
+      LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+    volumes:
+      - archlife_data:/app/data
+      - core_shared_data:/shared/core
+    ports:
+      - "8080:8080"
+
+  archlife_frontend:
+    build:
+      context: ./archlife/archlife-frontend
+      dockerfile: Dockerfile
+      args:
+        # nginxは静的ファイルを配信するだけなので、VITE_API_BASE_URLは
+        # 実行時の environment ではなく、ビルド時の build.args で渡す
+        # 必要がある(Viteがビルド時にJSバンドルへ焼き込むため)。
+        # gateway経由にする場合は http://localhost:3000/api/life に変更する
+        VITE_API_BASE_URL: http://localhost:8080
+    container_name: life_support_os_archlife_frontend
+    restart: unless-stopped
+    depends_on:
+      - archlife_backend
+    ports:
+      - "8081:80"
+
+  # ── 就活支援(interview_app) ───────────────────────────────
+  interview_backend:
+    build:
+      # 注意: backendフォルダだけをbuild contextにすると、interview_app/shared/への
+      # シンボリックリンク(backend/shared -> ../../shared/)の実体がbuild contextの
+      # 外になり、コンテナ内でquestion_prediction等が見つからずに落ちる。
+      # そのためcontextをinterview_app直下まで広げている。
+      context: ./interview_app
+      dockerfile: react-fastapi/backend/Dockerfile
+    container_name: life_support_os_interview_backend
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    networks:
+      default:
+        # interview_appのfrontend/nginx.confが upstream backend; と
+        # ハードコードされているため、このサービス名(interview_backend)とは
+        # 別に "backend" という名前でも名前解決できるようにする。
+        aliases:
+          - backend
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      INTERVIEW_DB_PATH: /app/data/career_support.db
+      LOG_LEVEL: INFO
+      # ↓ archlife_backend / gatewayと必ず同じ値にする
+      LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
+      LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+    volumes:
+      - interview_backend_data:/app/data
+      - core_shared_data:/shared/core
+    ports:
+      - "8000:8000"
+
+  interview_frontend:
+    build:
+      context: ./interview_app/react-fastapi/frontend
+      dockerfile: Dockerfile
+    container_name: life_support_os_interview_frontend
+    restart: unless-stopped
+    depends_on:
+      - interview_backend
+    ports:
+      - "3001:80"
+
+  # ── 学習支援(study-support) ─────────────────────────────────
+  # ステップ1: 最小実装(学習ログ記録のみ)。専用フロントエンドはまだ無いため
+  # study_frontendサービスは存在しない(gateway経由のAPI呼び出しのみ)。
+  study_support:
+    build:
+      context: .                              # gatewayと同じくlocal-ai-coreを同梱するため広いcontext
+      dockerfile: study-support/Dockerfile
+    container_name: life_support_os_study_support
+    restart: unless-stopped
+    environment:
+      STUDY_DB_PATH: /app/data/study.db
+      # ↓ 他アプリ・gatewayと必ず同じ値にする(=同じcore.dbを見る)
+      LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
+      LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+    volumes:
+      - study_support_data:/app/data
+      - core_shared_data:/shared/core
+    ports:
+      - "8100:8100"
+
+  # ── 健康管理(health-support) ────────────────────────────────
+  # study_supportと同じステップ1パターン(専用フロントエンドはあるが、
+  # gatewayとは別ポートで単体でも動く。gateway経由でも/api/health/*で
+  # 到達できるようにする)。
+  health_support:
+    build:
+      context: .                              # study_support/gatewayと同じくlocal-ai-coreを同梱するため広いcontext
+      dockerfile: health-support/Dockerfile
+    container_name: life_support_os_health_support
+    restart: unless-stopped
+    environment:
+      HEALTH_DB_PATH: /app/data/health.db
+      # ↓ 他アプリ・gatewayと必ず同じ値にする(=同じcore.dbを見る)
+      LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
+      LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+    volumes:
+      - health_support_data:/app/data
+      - core_shared_data:/shared/core
+    ports:
+      - "8200:8200"
+
+  # ── 統合gateway(/core/* と /api/life/* /api/career/* /api/study/* の入口) ─
+  gateway:
+    build:
+      context: .                              # umbrella repoルート全体をbuild contextにする
+      dockerfile: life-support-os-gateway/Dockerfile
+    container_name: life_support_os_gateway
+    restart: unless-stopped
+    depends_on:
+      - archlife_backend
+      - interview_backend
+      - study_support
+      - health_support
+      - ollama
+    environment:
+      ARCHLIFE_BACKEND_URL: http://archlife_backend:8080
+      INTERVIEW_APP_BACKEND_URL: http://interview_backend:8000
+      STUDY_SUPPORT_BACKEND_URL: http://study_support:8100
+      HEALTH_SUPPORT_BACKEND_URL: http://health_support:8200
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen3:8b
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # ↓ archlife_backend / interview_backendと必ず同じ値にする(=同じcore.dbを見る)
+      LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
+      LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+      # オートメーション定期実行の間隔(秒)。既定は3600(1時間)。
+      AUTOMATION_POLL_INTERVAL_SECONDS: "1800"
+      # ↓ gatewayという「唯一の入口」を守る共有シークレット。
+      # 必ずこの既定値から変更すること(変更しないまま公開しないでください)。
+      # 生成例: openssl rand -hex 32
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
+      # CORSで許可するオリジン(カンマ区切り)。個別フロントエンドの
+      # ポート(archlife:8081 / interview_app:3001)を既定で許可している。
+      GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8081,http://localhost:3001"
+      # core.dbの定期バックアップ設定。既定は24時間ごと、14日分保持。
+      BACKUP_DIR: /backups
+      BACKUP_INTERVAL_HOURS: "24"
+      BACKUP_RETENTION_DAYS: "14"
+    volumes:
+      - core_shared_data:/shared/core
+      # core_shared_dataとは別の場所(ホストのフォルダ)にバックアップを置く。
+      # 同じボリュームの中に置くと、ボリューム自体が壊れた/誤って
+      # `docker compose down -v` した場合にバックアップも道連れになるため。
+      # ./backups は umbrella repoルートに自動的に作られる(Windows/PowerShellの
+      # 場合は素直に life-support-os\backups フォルダとして見える)。
+      - ./backups:/backups
+    ports:
+      - "3000:3000"
+
+volumes:
+  ollama_data:
+  archlife_data:
+  interview_backend_data:
+  study_support_data:
+  health_support_data:
+  core_shared_data:   # ← 5サービス(archlife_backend/interview_backend/study_support/health_support/gateway)が共有するcore.db用ボリューム

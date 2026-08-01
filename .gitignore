@@ -1,0 +1,73 @@
+# ============================================================
+# LifeOS umbrella repo .gitignore
+# 各モジュール(archlife, interview_app, local-ai-core,
+# life-support-os-gateway, study-support, health-support)は
+# submoduleとして管理するため、以下はルート直下に生成物が
+# 紛れ込んだ場合の保険として残す。
+# ============================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 仮想環境(どのapp配下にあっても無視)
+venv/
+.venv/
+env/
+ENV/
+
+# ---- ローカルDB(SQLite) ----
+# 個人のPCに保存されるユーザーデータなので、絶対にコミットしない
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+db/*.db
+
+# core.dbのバックアップ置き場(*.dbで実質カバー済みだが、念のため明示)
+backups/
+
+# ---- Node / フロントエンド ----
+node_modules/
+dist/
+build/
+.vite/
+*.local
+
+# ---- 環境変数・秘密情報 ----
+# APIキー・GATEWAY_AUTH_TOKEN等が入るファイルは絶対に無視する
+.env
+.env.*
+!.env.example
+
+# ---- OS / エディタ ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ---- ログ・一時ファイル ----
+*.log
+tmp/
+temp/
+
+# ---- ビルド成果物(PyInstaller等) ----
+*.spec.bak
+/dist/
+/build/
+*.exe
+*.msi
+
+# ---- 作業中の古いzipファイル等 ----
+*.zip
+
+shared/

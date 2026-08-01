@@ -1,0 +1,18 @@
+[submodule "archlife"]
+	path = archlife
+	url = https://github.com/Myubd/archlife.git
+[submodule "interview_app"]
+	path = interview_app
+	url = https://github.com/Myubd/interview-ai-app.git
+[submodule "local-ai-core"]
+	path = local-ai-core
+	url = https://github.com/Myubd/local-ai-core.git
+[submodule "life-support-os-gateway"]
+	path = life-support-os-gateway
+	url = https://github.com/Myubd/life-support-os-gateway.git
+[submodule "study-support"]
+	path = study-support
+	url = https://github.com/Myubd/study-support.git
+[submodule "health-support"]
+	path = health-support
+	url = https://github.com/Myubd/health-support.git
