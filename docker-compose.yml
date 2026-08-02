@@ -86,7 +86,12 @@ services:
       - archlife_data:/app/data
       - core_shared_data:/shared/core
     ports:
-      - "8080:8080"
+      # 127.0.0.1限定でbind: このサービス自体には認証が無く、gatewayの
+      # auth_middlewareを経由しないアクセスを許してしまう。同一マシン上での
+      # 直接デバッグ/archlife_frontendからのアクセスは残しつつ、Docker Desktop
+      # の既定(0.0.0.0 bind)でLAN上の他端末から到達できてしまう状態を防ぐ。
+      # 詳細: docs/SECURITY_NOTES.md
+      - "127.0.0.1:8080:8080"
 
   archlife_frontend:
     build:
@@ -136,7 +141,8 @@ services:
       - interview_backend_data:/app/data
       - core_shared_data:/shared/core
     ports:
-      - "8000:8000"
+      # 127.0.0.1限定。理由はarchlife_backendの同項目コメントを参照。
+      - "127.0.0.1:8000:8000"
 
   interview_frontend:
     build:
@@ -163,11 +169,16 @@ services:
       # ↓ 他アプリ・gatewayと必ず同じ値にする(=同じcore.dbを見る)
       LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
       LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+      # ↓ gatewayと同じ値にする。gateway経由のリクエストはgw_session Cookieが
+      # そのまま転送されるため自動的に認証が通るが、このポートへの直接アクセス
+      # (未認証)を防ぐために本サービス自身でもトークンを検証する。
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
     volumes:
       - study_support_data:/app/data
       - core_shared_data:/shared/core
     ports:
-      - "8100:8100"
+      # 127.0.0.1限定。理由はarchlife_backendの同項目コメントを参照。
+      - "127.0.0.1:8100:8100"
 
   # ── 健康管理(health-support) ────────────────────────────────
   # study_supportと同じステップ1パターン(専用フロントエンドはあるが、
@@ -184,11 +195,15 @@ services:
       # ↓ 他アプリ・gatewayと必ず同じ値にする(=同じcore.dbを見る)
       LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
       LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+      # ↓ gatewayと同じ値にする。理由はstudy_supportの同項目コメントを参照。
+      # health-supportはsensitivity_level=highのデータを扱うため特に重要。
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
     volumes:
       - health_support_data:/app/data
       - core_shared_data:/shared/core
     ports:
-      - "8200:8200"
+      # 127.0.0.1限定。理由はarchlife_backendの同項目コメントを参照。
+      - "127.0.0.1:8200:8200"
 
   # ── 統合gateway(/core/* と /api/life/* /api/career/* /api/study/* の入口) ─
   gateway:
