@@ -82,6 +82,10 @@ services:
       # ↓ ここが「共通データ基盤を共有する」ための肝。gateway/interview_backendと必ず同じ値にする
       LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
       LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+      # ↓ gatewayと同じ値にする。gateway経由のリクエストはgw_session Cookieが
+      # そのまま転送されるため自動的に認証が通るが、このポートへの直接アクセス
+      # (未認証)を防ぐために本サービス自身でもトークンを検証する。
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
     volumes:
       - archlife_data:/app/data
       - core_shared_data:/shared/core
@@ -137,6 +141,10 @@ services:
       # ↓ archlife_backend / gatewayと必ず同じ値にする
       LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
       LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+      # ↓ gatewayと同じ値にする。理由はarchlife_backendの同項目コメントを参照。
+      # 未設定の場合、docker-compose起動時のLAUNCH_FASTAPI_ORCHESTRATEDは
+      # 立たないため(単体exe専用のフラグ)、このサービスは通常通り認証必須になる。
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
     volumes:
       - interview_backend_data:/app/data
       - core_shared_data:/shared/core
