@@ -68,6 +68,14 @@ graph TD
 
 ## クイックスタート
 
+### 方法A: Windowsインストーラーで使う(推奨・簡単)
+
+Docker不要。[Releases](https://github.com/Myubd/life-support-os/releases/latest)から
+`LifeSupportOS-Setup-x.x.x.exe`をダウンロードして実行するだけです。
+Program Files配下にインストールされ、データは`%APPDATA%\LifeSupportOS`に保存されます。
+
+### 方法B: Docker Composeで使う(開発・Windows以外)
+
 ### 1. clone(submoduleを含めて)
 
 ```bash
