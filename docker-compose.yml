@@ -85,7 +85,7 @@ services:
       # ↓ gatewayと同じ値にする。gateway経由のリクエストはgw_session Cookieが
       # そのまま転送されるため自動的に認証が通るが、このポートへの直接アクセス
       # (未認証)を防ぐために本サービス自身でもトークンを検証する。
-      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:?GATEWAY_AUTH_TOKEN is not set. Create a .env file (see README) before starting.}
     volumes:
       - archlife_data:/app/data
       - core_shared_data:/shared/core
@@ -144,7 +144,7 @@ services:
       # ↓ gatewayと同じ値にする。理由はarchlife_backendの同項目コメントを参照。
       # 未設定の場合、docker-compose起動時のLAUNCH_FASTAPI_ORCHESTRATEDは
       # 立たないため(単体exe専用のフラグ)、このサービスは通常通り認証必須になる。
-      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:?GATEWAY_AUTH_TOKEN is not set. Create a .env file (see README) before starting.}
     volumes:
       - interview_backend_data:/app/data
       - core_shared_data:/shared/core
@@ -180,7 +180,7 @@ services:
       # ↓ gatewayと同じ値にする。gateway経由のリクエストはgw_session Cookieが
       # そのまま転送されるため自動的に認証が通るが、このポートへの直接アクセス
       # (未認証)を防ぐために本サービス自身でもトークンを検証する。
-      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:?GATEWAY_AUTH_TOKEN is not set. Create a .env file (see README) before starting.}
     volumes:
       - study_support_data:/app/data
       - core_shared_data:/shared/core
@@ -205,13 +205,70 @@ services:
       LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
       # ↓ gatewayと同じ値にする。理由はstudy_supportの同項目コメントを参照。
       # health-supportはsensitivity_level=highのデータを扱うため特に重要。
-      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:?GATEWAY_AUTH_TOKEN is not set. Create a .env file (see README) before starting.}
     volumes:
       - health_support_data:/app/data
       - core_shared_data:/shared/core
     ports:
       # 127.0.0.1限定。理由はarchlife_backendの同項目コメントを参照。
       - "127.0.0.1:8200:8200"
+
+  # ── デジタル金庫(digital-vault) ──────────────────────────────
+  # study_support/health_supportと同じステップ1パターン。ただしこのアプリ
+  # だけはサーバー側がciphertext/ivしか扱わない(ゼロ知識設計)ため、
+  # LOCAL_AI_CORE_DB_PATH等の共有基盤への接続は他アプリと全く同じでよい
+  # (暗号化はサーバー側の話ではなく、あくまでクライアント側=ブラウザで
+  # 完結しているため、環境変数レベルでは特別な設定は増えない)。
+  digital_vault:
+    build:
+      context: .                              # study_support/health_supportと同じくlocal-ai-coreを同梱するため広いcontext
+      dockerfile: digital-vault/Dockerfile
+    container_name: life_support_os_digital_vault
+    restart: unless-stopped
+    environment:
+      VAULT_DB_PATH: /app/data/digital_vault.db
+      # ↓ 他アプリ・gatewayと必ず同じ値にする(=同じcore.dbを見る)
+      LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
+      LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+      # ↓ gatewayと同じ値にする。理由はstudy_supportの同項目コメントを参照。
+      # digital-vaultはパスポート等の重要書類を扱うため特に重要
+      # (ただし中身自体はciphertextとしてしか保存されないので、このトークンは
+      # あくまで「誰がこのサービスにアクセスできるか」の制御であり、
+      # 復号可能かどうかとは無関係)。
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:?GATEWAY_AUTH_TOKEN is not set. Create a .env file (see README) before starting.}
+    volumes:
+      - digital_vault_data:/app/data
+      - core_shared_data:/shared/core
+    ports:
+      # 127.0.0.1限定。理由はarchlife_backendの同項目コメントを参照。
+      - "127.0.0.1:8300:8300"
+
+  # ── 防災・災害情報(disaster-support) ────────────────────────────
+  # study_support/health_support/digital_vaultと同じステップ1パターン。
+  # ただしこのアプリだけは、このエコシステムで唯一「外部(気象庁)と通信する」
+  # アプリ(受信専用・GETのみ、個人情報を含むリクエストは一切送らない)。
+  # 詳細は disaster-support/main.py のdocstring参照。
+  disaster_support:
+    build:
+      context: .                              # 他のstep1アプリと同じくlocal-ai-coreを同梱するため広いcontext
+      dockerfile: disaster-support/Dockerfile
+    container_name: life_support_os_disaster_support
+    restart: unless-stopped
+    environment:
+      DISASTER_DB_PATH: /app/data/disaster.db
+      # 気象庁への定期ポーリング間隔(分)。既定10分。
+      DISASTER_POLL_INTERVAL_MINUTES: "10"
+      # ↓ 他アプリ・gatewayと必ず同じ値にする(=同じcore.dbを見る)
+      LOCAL_AI_CORE_DB_PATH: /shared/core/core.db
+      LOCAL_AI_CORE_DEVICE_IDENTITY_PATH: /shared/core/device_identity.json
+      # ↓ gatewayと同じ値にする。理由はstudy_supportの同項目コメントを参照。
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:?GATEWAY_AUTH_TOKEN is not set. Create a .env file (see README) before starting.}
+    volumes:
+      - disaster_support_data:/app/data
+      - core_shared_data:/shared/core
+    ports:
+      # 127.0.0.1限定。理由はarchlife_backendの同項目コメントを参照。
+      - "127.0.0.1:8400:8400"
 
   # ── 統合gateway(/core/* と /api/life/* /api/career/* /api/study/* の入口) ─
   gateway:
@@ -225,12 +282,16 @@ services:
       - interview_backend
       - study_support
       - health_support
+      - digital_vault
+      - disaster_support
       - ollama
     environment:
       ARCHLIFE_BACKEND_URL: http://archlife_backend:8080
       INTERVIEW_APP_BACKEND_URL: http://interview_backend:8000
       STUDY_SUPPORT_BACKEND_URL: http://study_support:8100
       HEALTH_SUPPORT_BACKEND_URL: http://health_support:8200
+      DIGITAL_VAULT_BACKEND_URL: http://digital_vault:8300
+      DISASTER_SUPPORT_BACKEND_URL: http://disaster_support:8400
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: qwen3:8b
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -243,7 +304,7 @@ services:
       # ↓ gatewayという「唯一の入口」を守る共有シークレット。
       # 必ずこの既定値から変更すること(変更しないまま公開しないでください)。
       # 生成例: openssl rand -hex 32
-      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:-please-change-this-token}
+      GATEWAY_AUTH_TOKEN: ${GATEWAY_AUTH_TOKEN:?GATEWAY_AUTH_TOKEN is not set. Create a .env file (see README) before starting.}
       # CORSで許可するオリジン(カンマ区切り)。個別フロントエンドの
       # ポート(archlife:8081 / interview_app:3001)を既定で許可している。
       GATEWAY_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8081,http://localhost:3001"
@@ -268,4 +329,6 @@ volumes:
   interview_backend_data:
   study_support_data:
   health_support_data:
-  core_shared_data:   # ← 5サービス(archlife_backend/interview_backend/study_support/health_support/gateway)が共有するcore.db用ボリューム
+  digital_vault_data:
+  disaster_support_data:
+  core_shared_data:   # ← 7サービス(archlife_backend/interview_backend/study_support/health_support/digital_vault/disaster_support/gateway)が共有するcore.db用ボリューム

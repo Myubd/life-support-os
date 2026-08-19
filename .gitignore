@@ -71,3 +71,7 @@ temp/
 *.zip
 
 shared/
+
+dist_lifeos/
+
+dist_lifeos/

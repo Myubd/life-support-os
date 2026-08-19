@@ -16,3 +16,9 @@
 [submodule "health-support"]
 	path = health-support
 	url = https://github.com/Myubd/health-support.git
+[submodule "digital-vault"]
+	path = digital-vault
+	url = https://github.com/Myubd/digital-vault.git
+[submodule "disaster-support"]
+	path = disaster-support
+	url = https://github.com/Myubd/disaster-support.git
