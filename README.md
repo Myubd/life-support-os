@@ -7,7 +7,9 @@
 
 すべてのデータは端末内の SQLite にのみ保存され、外部(クラウド)には一切送信されない。
 これはこのプロジェクト全体の一貫した設計方針であり、機能を追加するたびに
-確認してきた原則でもある。
+確認してきた原則でもある。**唯一の例外は`disaster-support`**で、気象庁の
+公開情報を受信するためだけに外部と通信する(個人情報を含む送信は一切行わない、
+受信専用のGETリクエストのみ)。詳細は`disaster-support`のREADME/コード内コメントを参照。
 
 ---
 
@@ -25,6 +27,8 @@ graph TD
     DC --> CAREER[interview_app<br/>就活支援]
     DC --> STUDY[study-support<br/>学習支援]
     DC --> HEALTH[health-support<br/>健康管理]
+    DC --> VAULT[digital-vault<br/>デジタル金庫]
+    DC --> DISASTER[disaster-support<br/>防災・災害情報]
     DC --> LLM[ollama<br/>ローカルLLM]
 
     GW -.pip install.-> CORE
@@ -32,37 +36,47 @@ graph TD
     CAREER -.pip install.-> CORE
     STUDY -.pip install.-> CORE
     HEALTH -.pip install.-> CORE
+    VAULT -.pip install.-> CORE
+    DISASTER -.pip install.-> CORE
+
+    DISASTER -.GET・受信専用.-> JMA[気象庁<br/>唯一の外部通信先]
 ```
 
 各モジュールはそれぞれ独立したGitHubリポジトリで管理されており、このリポジトリは
 それらをsubmoduleとして参照しているだけ。モジュール個別の実装・機能詳細は、
 それぞれのリポジトリのREADMEを参照。
 
-| モジュール | 役割 | ポート | リポジトリ |
-|---|---|---|---|
-| `life-support-os-gateway` | 唯一の入口。認証・統合コンソール・横断検索・オートメーション・バックアップ | 3000 | [life-support-os-gateway](https://github.com/Myubd/life-support-os-gateway) |
-| `local-ai-core` | 共通基盤。権限管理・メモリー・ドキュメントセンター・検索・オートメーション・アシスタント | (ライブラリ) | [local-ai-core](https://github.com/Myubd/local-ai-core) |
-| `archlife` | ライフサポートOS(予定・タスク・生活管理) | 8080 / 8081 | [archlife](https://github.com/Myubd/archlife) |
-| `interview_app` | 就活支援(ES・面接・企業研究) | 8000 / 3001 | [interview-ai-app](https://github.com/Myubd/interview-ai-app) |
-| `study-support` | 学習支援(学習ログ・苦手分野推測) | 8100 | [study-support](https://github.com/Myubd/study-support) |
-| `health-support` | 健康管理(体調ログ・不調傾向推測) | 8200 | [health-support](https://github.com/Myubd/health-support) |
+| モジュール                     | 役割                                           | ポート         | リポジトリ                                                                       |
+| ------------------------- | -------------------------------------------- | ----------- | --------------------------------------------------------------------------- |
+| `life-support-os-gateway` | 唯一の入口。認証・統合コンソール・横断検索・オートメーション・バックアップ        | 3000        | [life-support-os-gateway](https://github.com/Myubd/life-support-os-gateway) |
+| `local-ai-core`           | 共通基盤。権限管理・メモリー・ドキュメントセンター・検索・オートメーション・アシスタント | (ライブラリ)     | [local-ai-core](https://github.com/Myubd/local-ai-core)                     |
+| `archlife`                | ライフサポートOS(予定・タスク・生活管理)                       | 8080 / 8081 | [archlife](https://github.com/Myubd/archlife)                               |
+| `interview_app`           | 就活支援(ES・面接・企業研究)                             | 8000 / 3001 | [interview-ai-app](https://github.com/Myubd/interview-ai-app)               |
+| `study-support`           | 学習支援(学習ログ・苦手分野推測)                            | 8100        | [study-support](https://github.com/Myubd/study-support)                     |
+| `health-support`          | 健康管理(体調ログ・不調傾向推測)                            | 8200        | [health-support](https://github.com/Myubd/health-support)                   |
+| `digital-vault`           | デジタル金庫(パスポート・保険証書等の暗号化保管。サーバー側は復号しないゼロ知識設計) | 8300        | [digital-vault](https://github.com/Myubd/digital-vault)                     |
+| `disaster-support`        | 防災・災害情報(気象庁の警報・注意報/地震/津波情報。このエコシステムで唯一外部通信するアプリ) | 8400        | [disaster-support](https://github.com/Myubd/disaster-support)               |
 
 ---
 
 ## 設計思想
 
 - **クラウドに個人情報を送らない**: すべてのデータは端末内のSQLite(`core.db`)に
-  保存される。gatewayを含むどのモジュールも、ユーザーが明示的にオプトインしない限り
-  外部APIを呼ばない。
+保存される。gatewayを含むほぼ全てのモジュールは外部APIを一切呼ばない。唯一の例外は
+`disaster-support`で、気象庁の公開情報を受信するためだけに通信する(受信専用、
+個人情報を含む送信は行わない)。
 - **「AIが全部知っている」を避ける**: 各アプリは、使いたいデータへのアクセスを
-  `plugin_manifest.json`で申告するだけで、実際にアクセスできるのはユーザーが
-  gatewayの権限台帳で個別に許可した範囲だけ。
+`plugin_manifest.json`で申告するだけで、実際にアクセスできるのはユーザーが
+gatewayの権限台帳で個別に許可した範囲だけ。
 - **新しい設計パターンを増やさない**: `study-support`で確立したパターン
-  (memory書き込み・schedule書き込み・権限が無くても本体機能は落とさない設計)を、
-  `health-support`にもそのまま適用できることを実証済み。新しいアプリを足すたびに
-  仕組みを作り直さない。
+(memory書き込み・schedule書き込み・権限が無くても本体機能は落とさない設計)を、
+`health-support`・`digital-vault`・`disaster-support`にもそのまま適用できることを
+実証済み。新しいアプリを足すたびに仕組みを作り直さない。
+- **ゼロ知識が必要な場面では、暗号化はクライアント側で完結させる**: `digital-vault`
+のように「サーバーが乗っ取られても中身は読めない」設計が必要な場合、暗号化・復号は
+ブラウザ側(Web Crypto API)で行い、サーバーはciphertext/ivしか扱わない。
 - **単一ユーザー前提**: プライバシー・セキュリティを最優先するため、複数プロフィール
-  (家族共有等)は設計上の対象外としている。
+(家族共有等)は設計上の対象外としている。
 
 ---
 
@@ -76,7 +90,7 @@ Program Files配下にインストールされ、データは`%APPDATA%\LifeSupp
 
 ### 方法B: Docker Composeで使う(開発・Windows以外)
 
-### 1. clone(submoduleを含めて)
+#### 1. clone(submoduleを含めて)
 
 ```bash
 git clone --recurse-submodules https://github.com/Myubd/life-support-os.git
@@ -89,7 +103,7 @@ cd life-support-os
 git submodule update --init --recursive
 ```
 
-### 2. `.env`を作る(gatewayの認証トークンが必須)
+#### 2. `.env`を作る(gatewayの認証トークンが必須)
 
 ```bash
 echo "GATEWAY_AUTH_TOKEN=$(openssl rand -hex 32)" > .env
@@ -103,13 +117,13 @@ echo "GATEWAY_AUTH_TOKEN=$(openssl rand -hex 32)" > .env
 
 `.env`は`.gitignore`で除外されているため、コミットされることはない。
 
-### 3. モデルを取得(初回のみ)
+#### 3. モデルを取得(初回のみ)
 
 ```bash
 docker compose --profile setup run --rm model_setup
 ```
 
-### 4. 起動
+#### 4. 起動
 
 ```bash
 docker compose up -d
@@ -122,12 +136,12 @@ docker compose up -d
 
 ## 動作要件
 
-| 項目 | 内容 |
-|------|------|
-| OS | Windows(WSL2) / macOS / Linux |
-| Docker | Docker Desktop(WSL2バックエンド推奨) |
-| GPU | 必須ではないが、`ollama`サービスはNVIDIA GPU(WSL2 CUDA対応ドライバ)を使う設定になっている。無い場合は`docker-compose.yml`の`deploy.resources`セクションを調整する |
-| ディスク | 各モジュールのDB・Ollamaのモデル(数GB)・`core.db`のバックアップ分の空き容量 |
+| 項目     | 内容                                                                                                                 |
+| ------ | ------------------------------------------------------------------------------------------------------------------ |
+| OS     | Windows(インストーラー版はWindowsのみ。Docker版はWSL2) / macOS / Linux                                                          |
+| Docker | 方法Bのみ必要。Docker Desktop(WSL2バックエンド推奨)                                                                              |
+| GPU    | 必須ではないが、`ollama`サービスはNVIDIA GPU(WSL2 CUDA対応ドライバ)を使う設定になっている。無い場合は`docker-compose.yml`の`deploy.resources`セクションを調整する |
+| ディスク   | 各モジュールのDB・Ollamaのモデル(数GB)・`core.db`のバックアップ分の空き容量                                                                   |
 
 ---
 
@@ -144,11 +158,14 @@ docker compose up -d
 ## セキュリティ上の注意
 
 - `core.db` `device_identity.json`のような実データ・鍵情報は、このリポジトリ・
-  各submoduleリポジトリのいずれにも含めないこと(`.gitignore`で除外済み)。
-  privateリポジトリであっても、クラウド(GitHub)に個人データを送らないという
-  設計方針そのものに反するため。
+各submoduleリポジトリのいずれにも含めないこと(`.gitignore`で除外済み)。
+privateリポジトリであっても、クラウド(GitHub)に個人データを送らないという
+設計方針そのものに反するため。
 - `GATEWAY_AUTH_TOKEN`は必ず既定値から変更すること。gatewayはこのトークンが
-  設定されていないと起動を拒否する(fail-closed)。
+設定されていないと起動を拒否する(fail-closed)。
+- `disaster-support`は気象庁の公開JSONを受信専用でポーリングする(送信は一切
+行わない)。ただし気象庁の当該JSONは公式に文書化されたAPIではなく、利用規約も
+明記されていないため、将来構造が変わる可能性がある点に留意すること。
 
 ---
 
